@@ -4,14 +4,11 @@
   matplotlib [use :as mpl-use pyplot :as plt])
 (require hyrule *)
 
-(print __name__)
-
-(if (not (= __name__ "__console__"))
-  (mpl-use "module://matplotlib-backend-kitty"))
+(mpl-use "module://matplotlib-backend-kitty")
 
 (defn show []
   (if (not (= __name__ "__console__"))
-    (plt.show)))
+      (plt.show)))
 
 (setv 
   T (** 2 14) 
@@ -23,9 +20,6 @@
         (^ (* (get coord 1) π_2) 
            (* (get coord 2) π_3))) 
     T))
-
-
-(setv vhash (jax.vmap spatial-hash))
 
 (defn smoothstep [t]
   (* t t (- 3 (* 2 t))))
@@ -46,8 +40,6 @@
                         [1 0 1]
                         [1 1 1]] :dtype lower.dtype))))
 
-(setv vv-idxs (jax.vmap voxel-idxs [0 None]))
-
 (defn hash-encoded-features [coord features level]
   (let [voxels (voxel-idxs coord level)
         interpolate-by 
@@ -57,16 +49,22 @@
         voxel-feats (get features feature-idxs)]
    (np.sum (* interpolate-by voxel-feats) :axis 0)))
 
-(setv v-hef (jax.vmap hash-encoded-features [0 None None]))
-
 (defn mlp [x weights in-dim out-dim]
   (-> x
       (@ (.reshape (cut weights 0 (* in-dim 64)) [in-dim 64]))
       (jax.nn.relu)
       (@ (.reshape (cut weights (* 64 in-dim) None) [64 out-dim]))))
 
+(defn mlp-sdf [x weights]
+  (mlp x weights 3 1))
+
 (defn mlp-3 [x weights]
   (mlp x weights 3 3))
+
+
+(setv vhash (jax.vmap spatial-hash))
+(setv v-hef (jax.vmap hash-encoded-features [0 None None]))
+(setv vv-idxs (jax.vmap voxel-idxs [0 None]))
 
 (setv xla-mlp (.xla-computation jax mlp-3))
 (setv jit-mlp (.jit jax mlp-3))
@@ -75,13 +73,14 @@
 
 (-> (xla-mlp (jax.random.uniform KEY [3])
              (jax.random.uniform KEY [(* 3 64 2)]))
-    (.as-hlo-text)
-    (print))
+    (.as-hlo-text))
+    ;(print)
+    
 
 
 (-> (jit-mlp (jax.random.uniform KEY [3])
              (jax.random.uniform KEY [(* 3 64 2)]))
-    (print))
+    (print)) ; [25.845406 26.278118 26.071196]
 
 (setv vhash (jax.vmap spatial-hash)
       coords (-> (np.linspace 0 10000 1000 :dtype np.int32) 

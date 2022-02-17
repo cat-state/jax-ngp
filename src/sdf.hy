@@ -24,8 +24,8 @@
 
 (let
   [ray-origin (np.array [0.0 0.0 -2.0])
-   [u v] (np.meshgrid (np.linspace -1.0 1.0 256)
-                      (np.linspace -1.0 1.0 256))
+   [u v] (np.meshgrid (np.linspace -1.0 1.0 1280)
+                      (np.linspace -1.0 1.0 1280))
    uvw (np.dstack [u v (np.ones-like u)])
    ray-dir (/ uvw (np.linalg.norm uvw :axis -1 :keepdims True))
    ray-dir (.reshape ray-dir [-1 3])
@@ -35,8 +35,17 @@
    vmarch (jax.vmap march :in-axes [0 0 None] :out-axes 0)
    res-pos (.reshape (vmarch ray-origin ray-dir marcher) [(get u.shape 0) (get u.shape 0) 3])
    res-vis (/ res-pos (np.linalg.norm res-pos :axis -1 :keepdims True))]
-  (plt.imshow res-vis)
-  (plt.show))
+  (setv res res-vis))
+
+(require hyrule *)
+
+(import ngp)
+(setv features (-> (jax.random.uniform ngp.KEY [ngp.T 2])))
+
+(ngp.mlp-3 res (jax.random.uniform ngp.KEY [(* 2 3 64)]))
+
+(plt.imshow res)
+(plt.show)
 
 
 

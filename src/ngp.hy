@@ -3,9 +3,6 @@
   jax [numpy :as np]
   matplotlib [use :as mpl-use pyplot :as plt])
 (require hyrule *)
-
-(mpl-use "module://matplotlib-backend-kitty")
-
 (defn show []
   (if (not (= __name__ "__console__"))
       (plt.show)))
@@ -71,31 +68,32 @@
 
 (setv KEY (jax.random.PRNGKey 2022))
 
-(-> (xla-mlp (jax.random.uniform KEY [3])
-             (jax.random.uniform KEY [(* 3 64 2)]))
-    (.as-hlo-text))
-    ;(print)
-    
+(if (= __name__ "__main__")
+  (do
+    (mpl-use "module://matplotlib-backend-kitty")
+    (-> (xla-mlp (jax.random.uniform KEY [3])
+                 (jax.random.uniform KEY [(* 3 64 2)]))
+        (.as-hlo-text))
+        ;(print)
+        
+    (-> (jit-mlp (jax.random.uniform KEY [3])
+                 (jax.random.uniform KEY [(* 3 64 2)]))
+        (print)) ; [25.845406 26.278118 26.071196]
 
+    (setv vhash (jax.vmap spatial-hash)
+          coords (-> (np.linspace 0 10000 1000 :dtype np.int32) 
+                    (np.tile [3 1])
+                    (.transpose 1 0)))
+    (setv tst (get coords 59)
+          vid (voxel-idxs tst 1)
+          feats (-> (np.linspace 0 1 T) (np.tile [2 1]) (.transpose 1 0))
+          fts (hash-encoded-features tst feats 1)
+          _ (print (. vid shape) (. tst shape) (. fts shape)))
 
-(-> (jit-mlp (jax.random.uniform KEY [3])
-             (jax.random.uniform KEY [(* 3 64 2)]))
-    (print)) ; [25.845406 26.278118 26.071196]
+    (. (vv-idxs coords 1) dtype)
+    (. (v-hef coords feats 1) shape)
+    ; (print (. coords shape))
+    ; (print (vhash coords))
 
-(setv vhash (jax.vmap spatial-hash)
-      coords (-> (np.linspace 0 10000 1000 :dtype np.int32) 
-                (np.tile [3 1])
-                (.transpose 1 0)))
-(setv tst (get coords 59)
-      vid (voxel-idxs tst 1)
-      feats (-> (np.linspace 0 1 T) (np.tile [2 1]) (.transpose 1 0))
-      fts (hash-encoded-features tst feats 1)
-      _ (print (. vid shape) (. tst shape) (. fts shape)))
-
-(. (vv-idxs coords 1) dtype)
-(. (v-hef coords feats 1) shape)
-; (print (. coords shape))
-; (print (vhash coords))
-
-(plt.plot (vhash coords))
-(show)
+    (plt.plot (vhash coords))
+    (show)))

@@ -3,9 +3,10 @@
   jax [numpy :as np]
   matplotlib [use :as mpl-use pyplot :as plt])
 (require hyrule *)
+
 (defn show []
-  (if (not (= __name__ "__console__"))
-      (plt.show)))
+  (if (= __name__ "__main__")
+    (plt.show)))
 
 (setv 
   T (** 2 14) 

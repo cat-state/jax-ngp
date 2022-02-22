@@ -1,4 +1,5 @@
-(import os [environ])
+(import os [environ]
+        functools [partial])
 (setv (get environ "XLA_PYTHON_CLIENT_PREALLOCATE") "false")
 
 (import jax
@@ -13,7 +14,7 @@
 
 
 (defn sphere [x [radius 0.5]]
-  (- (np.linalg.norm x :axis -1) radius))
+  (- (np.linalg.norm (- x 0.5) :axis -1) radius))
 
 (defn make-marcher [scene]
   (defn march-step [step arg-pack]
@@ -25,12 +26,6 @@
 (defn stop-marching [arg-pack]
   (| (< 1e-4 (get arg-pack 0))
      (> 1e3 (get arg-pack 0))))
-
-(defn march [ray-origin ray-dir marcher]
-  (let [init-val (, 1000.0 ray-origin ray-dir)
-        [dist ray-end _] (jax.lax.fori-loop
-                           0 30 marcher init-val)]
-    ray-end))
 
 (defn march [ray-origin ray-dir scene]
   (for [_ (range 0 30)]
@@ -60,10 +55,23 @@ http://extremelearning.com.au/unreasonable-effectiveness-of-quasirandom-sequence
 (defn mse [x y]
   (.mean (** (- x y) 2)))
 
+
 (import optax)
+
+(defn to-01 []
+  (defn init-fn [rng input-shape]
+    [input-shape (,)])
+  (defn apply-fn [_ x #** kwargs]
+    (-> x (* 0.5) (+ 0.5)))
+  [init-fn apply-fn])
 
 (defn Mlp []
   (stax.serial
+    (stax.FanOut 16)
+    (stax.parallel #*
+      (lfor level (range 0 16) 
+            (ngp.HashEncodedFeatures (** 2 22) 2 level)))
+    (stax.FanInConcat -1)
     (stax.Dense 64) stax.Relu
     (stax.Dense 64) stax.Relu
     (stax.Dense 64) stax.Relu
@@ -81,21 +89,21 @@ http://extremelearning.com.au/unreasonable-effectiveness-of-quasirandom-sequence
 (do
   (setv 
         [out-shape weights] (init-weights ngp.KEY (, 3)) 
-        optimizer (optax.adam 3e-3)
+        optimizer (optax.adam 3e-4)
         opt-state (.init optimizer weights)
         losses [])
   (for [epoch (range 0 100)]
-    (setv xs (-> (quasirandom 10000 3) (* 2) (- 1))
-          ys (sphere xs 0.5)
+    (setv xs (quasirandom 10 3)
+          ys (sphere xs)
           [loss grad] (train-step weights xs ys)
           [updates opt-state] (.update optimizer grad opt-state)
           weights (optax.apply-updates weights updates)) 
     (print loss)
     (.append losses (.item loss)))
-  (plt.plot losses)
+  (plt.semilogy losses)
   (plt.show))
 
-(.std weights)
+
 (import mpl-toolkits.mplot3d [Axes3D])
 
 ; from https://jax.readthedocs.io/en/latest/notebooks/convolutions.html
@@ -113,50 +121,36 @@ http://extremelearning.com.au/unreasonable-effectiveness-of-quasirandom-sequence
      ax (if (is None ax)
           (.add-subplot (plt.figure) :projection "3d")
           ax)
-     xyz (-> (quasirandom (** 30 3) 3) (* 2) (- 1))
+     xyz (quasirandom (** 30 3) 3)
      dist (xyz->c xyz)
      [x y z] (np.split xyz 3 :axis -1))
   (.scatter ax (.ravel x) (.ravel y) (.ravel z) :c (.ravel dist) :cmap my-cmap))
 
 (let [fig (plt.figure)]
-  (help (. fig add-subplot))
-  (plot-density (partial sphere :radius 0.5) (.add-subplot fig 2 1 1 :projection "3d"))
+  (plot-density sphere (.add-subplot fig 2 1 1 :projection "3d"))
   (plot-density (partial mlp weights) (.add-subplot fig 2 1 2 :projection "3d"))
   (plt.show))
 
-(import functools [partial])
 
-(setv mlp-sdf (partial ngp.mlp-sdf 
-                :weights (jax.random.uniform ngp.KEY [(+ (* 1 64) 
-                                                         (* 3 64))])))
+(do  
+  (setv
+   ray-origin (np.array [[0.5 0.5 -1.0]])
 
-(let
-  [ray-origin (np.array [0.0 0.0 -1.0])
    [u v] (np.meshgrid (np.linspace -1.0 1.0 128)
                       (np.linspace -1.0 1.0 128))
    uvw (np.dstack [u v (np.ones-like u)])
    ray-dir (/ uvw (np.linalg.norm uvw :axis -1 :keepdims True))
    ray-dir (.reshape ray-dir [-1 3])
-   ray-origin (jax.lax.broadcast ray-origin [(get ray-dir.shape 0)])
-   vmarch (jax.vmap march :in-axes [0 0 None] :out-axes 0)
-   res-pos (.reshape (vmarch ray-origin ray-dir (partial mlp weights)) 
+   marcher (jax.jit (fn [ro rd] (march ro rd sphere)))
+   (march ray-origin ray-dir sphere)
+   res-flat (marcher 
+             ray-origin ray-dir)
+                   
+   res-pos (.reshape res-flat
                      [(get u.shape 0) (get u.shape 0) 3])
-  ; res-pos (.reshape (vmarch ray-origin ray-dir (partial sphere :radius 0.5)) 
-  ;                   [(get u.shape 0) (get u.shape 0) 3])
-   res-vis (/ res-pos (np.linalg.norm res-pos :axis -1 :keepdims True))]
+    ; res-pos (.reshape (vmarch ray-origin ray-dir (partial sphere :radius 0.5)) 
+    ;                   [(get u.shape 0) (get u.shape 0) 3])
+   res-vis (/ res-pos (np.linalg.norm res-pos :axis -1 :keepdims True)))
   (plt.imshow res-pos)
   (plt.show))
-
-(setv features (jax.random.uniform ngp.KEY [ngp.T 2] :minval -1e-4 :maxval 1e-4))
-
-(->
-  (ngp.mlp-sdf res (jax.random.uniform ngp.KEY [(+ (* 1 64) 
-                                                   (* 3 64))]))
-  (plt.imshow)
-  (print))
-(plt.show)
-(plt.imshow res)
-(plt.show)
-
-
-
+  

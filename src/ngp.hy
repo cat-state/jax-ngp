@@ -1,3 +1,7 @@
+(import os [environ])
+(setv (get environ "XLA_PYTHON_CLIENT_PREALLOCATE") "false")
+
+
 (import 
   jax
   jax [numpy :as np]
@@ -27,7 +31,7 @@
     (* coarsest (** growth-factor level))))
 
 (defn voxel-idxs [coord level]
-  (let [lower (np.floor (* coord (grid-resolution level 2.0 0.5)))
+  (let [lower (np.floor (* coord (grid-resolution level 2.0 0.1)))
         lower (np.expand-dims lower 0)]
     (+ lower (np.array [[0 0 0]
                         [1 0 0]
@@ -46,6 +50,23 @@
         feature-idxs (vhash (.astype voxels np.int32))
         voxel-feats (get features feature-idxs)]
    (np.sum (* interpolate-by voxel-feats) :axis 0)))
+
+
+(defn HashEncodedFeatures [num-features feature-dim level]
+  (defn init-fn [rng input-shape]
+    (setv output-shape (+ (cut input-shape 0 -1) (, feature-dim))
+          params (jax.random.uniform rng [num-features feature-dim] 
+                                     :minval -1e-4 :maxval 1e-4))
+    (, output-shape params))
+  (defn apply-fn [params coord #** kwargs]
+    (v-hef coord params level))
+  [init-fn apply-fn])
+
+
+(import jax.example-libraries [stax])
+
+
+                 
 
 (defn mlp [x weights in-dim out-dim]
   (-> x

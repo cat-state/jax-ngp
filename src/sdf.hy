@@ -61,6 +61,16 @@ http://extremelearning.com.au/unreasonable-effectiveness-of-quasirandom-sequence
 (defn iou [x y]
   (/ (* x y)))
 
+(defn smape [x y]
+  (setv diff (- y x)
+        factor (/ 1.0 (* 0.5 (+ (+ (abs x) (abs y)) 1e-2))))
+  (* factor (abs diff)))
+
+(defn mape [target pred]
+  (.mean (/ (abs (- pred target)) 
+            (+ (abs target) 1e-2))))
+
+
 (import optax)
 
 (defn to-01 []
@@ -131,21 +141,21 @@ http://extremelearning.com.au/unreasonable-effectiveness-of-quasirandom-sequence
 (do
  (defn Mlp []
     (stax.serial
-      (hash-feature-encoding 8 (** 2 14))
+      (hash-feature-encoding 16 (** 2 19))
       (stax.Dense 64) stax.Relu ; (stax.elementwise np.sin)
       (stax.Dense 64) stax.Relu
       (stax.Dense 64) stax.Relu
       (stax.Dense 1)))
 
 
-
- (setv [init-weights mlp] (Mlp)))
+(setv [init-weights mlp] (Mlp))
 
 
 (do
   (setv 
         [out-shape weights] (init-weights ngp.KEY (, 3)) 
-        optimizer (optax.adam 3e-4 :eps 1e-15)
+        optimizer (optax.adam 1e-4 
+                               :b1 0.9 :b2 0.99 :eps 1e-15)
         opt-state (.init optimizer weights)
         losses []
         vis (fn []
@@ -155,48 +165,34 @@ http://extremelearning.com.au/unreasonable-effectiveness-of-quasirandom-sequence
                (plot-density sphere (.add-subplot fig 1 2 1 :projection "3d"))
                (plot-density (partial mlp weights) (.add-subplot fig 1 2 2 :projection "3d")))))
                
-  (for [epoch (range 0 100)]
-    (setv seed (+ 0.5 (/ epoch 1000.0))
+  (for [epoch (range 0 1000)]
+    (setv seed (+ 0.5 (/ epoch 10000.0))
           xs (quasirandom (** 30 3) 3 :seed seed)
           ys (sphere xs)
           [loss grad] (train-step weights xs ys)
-          [updates opt-state] (.update optimizer grad opt-state)
+          [updates opt-state] (.update optimizer grad opt-state :params weights)
           weights (optax.apply-updates weights updates)) 
     (print loss)
     (.append losses (.item loss))
-    (when (= 0 (% epoch 10))
+    (when False ; (= 0 (% epoch 10))
       (do
         (vis)
         (show "training"))))
-  
+
   (plt.plot losses)
-  (show "loss-curve"))
-  
-  
-  
-  
-      
-
-     
-
-
-
-
-
-
+  (plt.show))
 
 (let [fig (plt.figure)]
   (plot-density sphere (.add-subplot fig 1 2 1 :projection "3d"))
   (plot-density (partial mlp weights) (.add-subplot fig 1 2 2 :projection "3d"))
   (plt.show))
 
-
 (do  
   (setv
    ray-origin (np.array [[0.5 0.5 -1.0]])
 
-   [u v] (np.meshgrid (np.linspace -1.0 1.0 32)
-                      (np.linspace -1.0 1.0 32))
+   [u v] (np.meshgrid (np.linspace -1.0 1.0 320)
+                      (np.linspace -1.0 1.0 320))
    uvw (np.dstack [u v (np.ones-like u)])
    ray-dir (/ uvw (np.linalg.norm uvw :axis -1 :keepdims True))
    ray-dir (.reshape ray-dir [-1 3])
@@ -207,4 +203,4 @@ http://extremelearning.com.au/unreasonable-effectiveness-of-quasirandom-sequence
    res-vis (/ res-pos (np.linalg.norm res-pos :axis -1 :keepdims True)))
   (plt.imshow res-pos)
   (plt.show))
-  
+

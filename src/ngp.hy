@@ -31,7 +31,7 @@
     (* coarsest (** growth-factor level))))
 
 (defn voxel-idxs [coord level]
-  (let [lower (np.floor (* coord (grid-resolution level 2.0 0.1)))
+  (let [lower (np.floor (* coord (grid-resolution level 2.0 (/ 1.0 16))))
         lower (np.expand-dims lower 0)]
     (+ lower (np.array [[0 0 0]
                         [1 0 0]

@@ -45,6 +45,16 @@ http://extremelearning.com.au/unreasonable-effectiveness-of-quasirandom-sequence
      1.0))
 
 
+(vectorized defn inv-R3-hash [x [seed 0.5]] "(3)->()"
+    (setv 
+      x (/ x 128)
+      x (+ 1 x) 
+      x (-> x (- seed) (/ (get PLASTIC 3))))
+    (% (* (+ (get x 0) (get x 1))
+         (get x 2))
+      1.0))
+
+
 (import matplotlib.pyplot :as plt)
 
 (vectorized defn ngp-hash [x [seed 0] [T (** 2 14)]] "(3)->()"
@@ -65,7 +75,7 @@ http://extremelearning.com.au/unreasonable-effectiveness-of-quasirandom-sequence
 
 (do
   (setv fig (plt.figure)
-        hashes [ngp-hash R3-hash hash-without-sine])
+        hashes [ngp-hash R3-hash hash-without-sine inv-R3-hash])
         
   (for [[i hash] (enumerate hashes)]
    (setv ax (.add-subplot fig 1 (len hashes) (+ 1 i) :projection "3d")
@@ -78,17 +88,4 @@ http://extremelearning.com.au/unreasonable-effectiveness-of-quasirandom-sequence
    (.scatter ax x y z :c (/ h 128) :cmap "rainbow"))
   (plt.show))
   
-
-(R3-hash (quasirandom 10 3))
-
-(hy.macroexpand (vectorized defn tst2 [x] "(3)->(1)" (print x) (print None)))
-(print tst)
-
-
-
-
-(hash-without-sine (quasirandom 1000 3))
-
-(Rd-hash (np.expand-dims (np.arange 1 10) -1))
-
 

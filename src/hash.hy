@@ -46,10 +46,7 @@ http://extremelearning.com.au/unreasonable-effectiveness-of-quasirandom-sequence
 
 
 (vectorized defn inv-R3-hash [x [seed 0.5]] "(3)->()"
-    (setv 
-      x (/ x 128)
-      x (+ 1 x) 
-      x (-> x (- seed) (/ (get PLASTIC 3))))
+    (setv x (-> x (- seed) (/ (get PLASTIC 3))))
     (% (* (+ (get x 0) (get x 1))
          (get x 2))
       1.0))
@@ -71,12 +68,27 @@ http://extremelearning.com.au/unreasonable-effectiveness-of-quasirandom-sequence
       (+ (np.dot x (+ 31.32 (ncut x ::-1))))
       (#%(* (get %1 2) (+ (get %1 1) (get %1 0))))
       (% 1.0)))
- 
+
+
+(import timeit [timeit])
+
+(defn benchmark []
+  (setv hashes (lfor h [ngp-hash R3-hash hash-without-sine inv-R3-hash] (jax.jit h))
+               xyz (quasirandom 10000 3))
+  (for [h hashes]
+
+   (print "benchmarking" (. h __name__))
+
+   (print f"benchmark {(. h __name__)}"
+      (/ (timeit "hash()" :globals (dict :hash (fn [] (jax.block-until-ready (h xyz)))) :number 10000)
+         10000))))
+
+(benchmark)
 
 (do
   (setv fig (plt.figure)
-        hashes [ngp-hash R3-hash hash-without-sine inv-R3-hash])
-        
+         hashes [ngp-hash R3-hash hash-without-sine inv-R3-hash])
+       
   (for [[i hash] (enumerate hashes)]
    (setv ax (.add-subplot fig 1 (len hashes) (+ 1 i) :projection "3d")
        xyz (np.floor (* (quasirandom 10000 3) 128))

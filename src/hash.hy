@@ -91,7 +91,7 @@ http://extremelearning.com.au/unreasonable-effectiveness-of-quasirandom-sequence
        
   (for [[i hash] (enumerate hashes)]
    (setv ax (.add-subplot fig 1 (len hashes) (+ 1 i) :projection "3d")
-       xyz (np.floor (* (quasirandom 10000 3) 128))
+       xyz (np.floor (* (quasirandom  (** 30 3) 3) 128))
        _ (print (. xyz shape))
        h (hash xyz)
        [x y z] (np.split xyz 3 :axis -1))

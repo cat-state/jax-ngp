@@ -83,7 +83,7 @@ http://extremelearning.com.au/unreasonable-effectiveness-of-quasirandom-sequence
    (print f"benchmark {(. h __name__)}"
       (/ (timeit "hash()" "import gc;gc.collect()" :globals (dict :hash (fn [] (jax.block-until-ready (h xyz)))) :number 1000)
          1000))))
-
+(+ 1 1)
 
 ;(for [n (lfor n [1e6 1e7 1e8 1e9] (int n))]
 ;  (benchmark n))

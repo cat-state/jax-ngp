@@ -1,5 +1,4 @@
-(import os [environ]
-        functools [partial])
+(import os [environ])
 (setv (get environ "XLA_PYTHON_CLIENT_PREALLOCATE") "false")
 
 (import jax
@@ -8,7 +7,8 @@
         matplotlib :as mpl
         matplotlib [pyplot :as plt]
         cv2 [imshow waitKey destroyAllWindows]
-        jax.example-libraries [stax])
+        jax.example-libraries [stax]
+        jax.tree-util [Partial :as partial])
 
 (import ngp
         hash [quasirandom])
@@ -22,7 +22,7 @@
 
 
 (defn blobby [x]
-  (np.minimum (sphere x) (* 0.1 (+ 1.0 (np.sin (* 5.0 x))))))
+  (np.minimum (sphere x) (* 0.0 (+ 1.0 (np.sin (* 5.0 x))))))
 
 (defn make-marcher [scene]
   (defn march-step [step arg-pack]
@@ -35,11 +35,11 @@
   (| (< 1e-4 (get arg-pack 0))
      (> 1e3 (get arg-pack 0))))
 
-(defn march [ray-origin ray-dir scene]
-  (for [_ (range 0 30)]
-    (setv ray-origin (+ ray-origin (* ray-dir (scene ray-origin)))))
-  
-  ray-origin)
+#@(jax.jit 
+    (defn march [ray-origin ray-dir scene]
+      (for [_ (range 0 30)]
+        (setv ray-origin (+ ray-origin (* ray-dir (scene ray-origin))))) 
+      ray-origin))
 
 
 (defn mse [x y]
@@ -115,9 +115,8 @@
 
 (defn hash-feature-encoding [levels T]
   (stax.serial 
-   (stax.FanOut levels); (+ 1 levels))
+   (stax.FanOut levels)
    (stax.parallel 
-     stax.Identity
      #* (lfor level (range 0 levels) 
            (ngp.HashEncodedFeatures T 2 level :hasher ngp.R3-hash)))
    (stax.FanInConcat -1)))
@@ -141,7 +140,7 @@
       (hash-feature-encoding 16 (** 2 19))
       (stax.Dense 64) stax.Relu
       (stax.Dense 64) stax.Relu
-      (stax.Dense 1) stax.Tanh)))
+      (stax.Dense 1))))
 
 
 (setv [init-weights mlp] (Mlp))
@@ -165,20 +164,21 @@
 (defn normalize [x]
   (/ x (np.linalg.norm x :axis -1 :keepdims True)))
 
-(defn normals [x scene]
-  "Compute SDF normals by central differences using tetrahedron offsets
-  from https://www.iquilezles.org/www/articles/normalsSDF/normalsSDF.htm"
-  (setv tet (np.array [[ 1 -1 -1]
-                       [-1 -1  1]
-                       [-1  1 -1]
-                       [ 1  1  1]]))
-  (normalize
-    (+ #* (lfor offset tet (* offset (scene (+ x offset)))))))
-  
+#@(jax.jit 
+    (defn normals [x scene]
+      "Compute SDF normals by central differences using tetrahedron offsets
+      from https://www.iquilezles.org/www/articles/normalsSDF/normalsSDF.htm"
+      (setv tet (np.array [[ 1 -1 -1]
+                           [-1 -1  1]
+                           [-1  1 -1]
+                           [ 1  1  1]]))
+      (normalize
+        (+ #* (lfor offset tet (* offset (scene (+ x offset))))))))
+      
   
   
 
-(defn march-vis [weights]
+(defn march-vis [scene]
   (setv
      ray-origin (np.array [[0.5 0.5 -1.0]])
      [u v] (np.meshgrid (np.linspace -1.0 1.0 320)
@@ -187,17 +187,33 @@
      ray-dir (/ uvw (np.linalg.norm uvw :axis -1 :keepdims True))
      ray-dir (.reshape ray-dir [-1 3])
      marcher  (fn [ro rd] (march ro rd (partial mlp weights)))
-     res-flat (marcher ray-origin ray-dir) 
-     res-normal (normals res-flat (partial mlp weights))
+     res-flat (march ray-origin ray-dir scene)
+     res-normal (normals res-flat scene)
      ; [_ res-normal] (jax.jvp (partial mlp weights) [res-flat] [(np.ones-like res-flat)])
      unflat (fn [x] (.reshape x [(get u.shape 0) (get u.shape 1) -1]))
 
-     res-vis (np.where (< (mlp weights res-flat) 0.01)
+     res-vis (np.where (< (scene res-flat) 0.01)
                  res-flat
                 (np.zeros-like res-normal))
-     res-vis (unflat res-vis))  
-  (imshow "march-vis" (onp.asarray res-vis))
-  (waitKey 1))
+     res-vis (unflat res-vis)) 
+  res-vis)
+
+(import time [time])
+(jax.profiler.start-trace "/tmp/tensorboard")
+(setv t0 (time)
+      tst (jax.jit march-vis)
+      scene (partial sphere))
+(setv _ (tst scene))
+(for [x (range 30)]
+  (setv ret (tst scene)))
+(jax.block-until-ready ret)
+(print (- (time) t0))
+(jax.profiler.stop-trace)
+(raise SystemExit)
+ ; (imshow "march-vis" (onp.asarray res-vis))
+ ; (waitKey 1))
+
+
 
 (do
   (setv 
@@ -206,7 +222,7 @@
                                      :is-leaf (fn [n] (in "hash" n)))) 
         adamw   (optax.adamw 
                      ; 1e-4
-                     (optax.exponential-decay :init-value 1e-4 :transition-steps 2000 :decay-rate 0.1)
+                     (optax.exponential-decay :init-value 1e-4 :transition-steps 1000 :decay-rate 0.1)
                      :b1 0.9 :b2 0.99 :eps 1e-15
                      :weight-decay 1e-6
                      :mask (tree-map (fn [t] (not-in "hash" t)) weights
@@ -217,6 +233,14 @@
 
         opt-state (.init optimizer weights)
         losses []
+        
+        ray-origin (np.array [[0.5 0.5 -1.0]])
+
+        [u v] (np.meshgrid (np.linspace -1.0 1.0 512)
+                          (np.linspace -1.0 1.0 512))
+        uvw (np.dstack [u v (np.ones-like u)])
+        ray-dir (/ uvw (np.linalg.norm uvw :axis -1 :keepdims True))
+        ray-dir (.reshape ray-dir [-1 3])      
         vis (fn []
               (do
                (setv fig (plt.figure))
@@ -226,16 +250,22 @@
   (for [epoch (tqdm (range 0 11000))]
     (setv seed (+ 0.5 (/ epoch 20000.0))
           ; xs (quasirandom 100000 3 :seed seed)
-          xs (jax.random.uniform (jax.random.PRNGKey epoch) [300000 3])  
-          ys (np.tanh (blobby xs))
+          xs (if (and (> epoch 10) (= 0 (% epoch 2)))
+               (do
+                 (setv angle (jax.random.uniform (jax.random.PRNGKey epoch) [1]))
+                 (march (rot-xy ray-origin angle) (rot-xy ray-dir angle) (partial mlp weights)))
+               (jax.random.uniform (jax.random.PRNGKey epoch) [300000 3]))  
+          ys (np.tanh (sphere xs))
           [loss grad] (train-step weights xs ys)
           [updates opt-state] (.update optimizer grad opt-state :params weights)
-          weights (optax.apply-updates weights updates)) 
+          weights (optax.apply-updates weights updates))
+    ; (march-vis (partial mlp weights)) 
+
 
     (.append losses (.item loss))
     (when (and True (= 0 (% epoch 500)))
       (do
-        (march-vis weights))))
+        (march-vis (partial mlp weights)))))
   (plt.semilogy losses)
   (plt.show))
 
@@ -245,6 +275,16 @@
   (plot-density sphere (.add-subplot fig 1 2 1 :projection "3d"))
   (plot-density (partial mlp weights) (.add-subplot fig 1 2 2 :projection "3d"))
   (plt.show))
+
+
+(import time [time])
+(do
+  (setv t0 (time))
+  (jax.jit march)
+  (print (- (time) t0))
+  (jax.block-until-ready 
+    ((jax.jit march) ray-origin ray-dir sphere))
+  (print (- (time) t0)))
 
 (do  
   (setv

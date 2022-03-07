@@ -15,7 +15,7 @@
 
 (require hyrule *)
 
-(destroyAllWindows)
+
 
 (defn sphere [x [radius 0.5]]
   (- (np.linalg.norm (- x 0.5) :axis -1 :keepdims True) radius))
@@ -138,9 +138,10 @@
  (defn Mlp []
     (stax.serial
       (hash-feature-encoding 16 (** 2 19))
-      (stax.Dense 64) stax.Relu
-      (stax.Dense 64) stax.Relu
-      (stax.Dense 1))))
+      (stax.Dense 64)
+      (stax.Dense 1)))) ; stax.Relu
+      ; (stax.Dense 64) stax.Relu)))
+      ; (stax.Dense 1))))
 
 
 (setv [init-weights mlp] (Mlp))
@@ -196,26 +197,14 @@
                  res-flat
                 (np.zeros-like res-normal))
      res-vis (unflat res-vis)) 
-  res-vis)
-
-(import time [time])
-(jax.profiler.start-trace "/tmp/tensorboard")
-(setv t0 (time)
-      tst (jax.jit march-vis)
-      scene (partial sphere))
-(setv _ (tst scene))
-(for [x (range 30)]
-  (setv ret (tst scene)))
-(jax.block-until-ready ret)
-(print (- (time) t0))
-(jax.profiler.stop-trace)
-(raise SystemExit)
- ; (imshow "march-vis" (onp.asarray res-vis))
- ; (waitKey 1))
+  (imshow "march vis" (onp.asarray res-vis))
+  (waitKey 1))
 
 
 
-(do
+
+(defmain []
+
   (setv 
         [out-shape weights] (init-weights ngp.KEY (, 3))
         _ (print (tree-map (fn [t] (not-in "hash" t)) weights
@@ -247,14 +236,10 @@
                (plot-density sphere (.add-subplot fig 1 2 1 :projection "3d"))
                (plot-density (partial mlp weights) (.add-subplot fig 1 2 2 :projection "3d")))))
                
-  (for [epoch (tqdm (range 0 11000))]
+  (for [epoch (tqdm (range 0 1000))]
     (setv seed (+ 0.5 (/ epoch 20000.0))
-          ; xs (quasirandom 100000 3 :seed seed)
-          xs (if (and (> epoch 10) (= 0 (% epoch 2)))
-               (do
-                 (setv angle (jax.random.uniform (jax.random.PRNGKey epoch) [1]))
-                 (march (rot-xy ray-origin angle) (rot-xy ray-dir angle) (partial mlp weights)))
-               (jax.random.uniform (jax.random.PRNGKey epoch) [300000 3]))  
+          ;xs (quasirandom 100000 3 :seed seed)
+          xs (jax.random.uniform (jax.random.PRNGKey epoch) [100000 3])
           ys (np.tanh (sphere xs))
           [loss grad] (train-step weights xs ys)
           [updates opt-state] (.update optimizer grad opt-state :params weights)
@@ -264,42 +249,40 @@
 
     (.append losses (.item loss))
     (when (and True (= 0 (% epoch 500)))
-      (do
-        (march-vis (partial mlp weights)))))
+      (do)))
   (plt.semilogy losses)
-  (plt.show))
-
-(destroyAllWindows)
-
-(let [fig (plt.figure)]
-  (plot-density sphere (.add-subplot fig 1 2 1 :projection "3d"))
-  (plot-density (partial mlp weights) (.add-subplot fig 1 2 2 :projection "3d"))
-  (plt.show))
+  (plt.show)
 
 
-(import time [time])
-(do
-  (setv t0 (time))
-  (jax.jit march)
-  (print (- (time) t0))
-  (jax.block-until-ready 
-    ((jax.jit march) ray-origin ray-dir sphere))
-  (print (- (time) t0)))
 
-(do  
-  (setv
-   ray-origin (np.array [[0.5 0.5 -1.0]])
+  (let [fig (plt.figure)]
+    (plot-density sphere (.add-subplot fig 1 2 1 :projection "3d"))
+    (plot-density (partial mlp weights) (.add-subplot fig 1 2 2 :projection "3d"))
+    (plt.show))
 
-   [u v] (np.meshgrid (np.linspace -1.0 1.0 320)
-                      (np.linspace -1.0 1.0 320))
-   uvw (np.dstack [u v (np.ones-like u)])
-   ray-dir (/ uvw (np.linalg.norm uvw :axis -1 :keepdims True))
-   ray-dir (.reshape ray-dir [-1 3])
-   marcher (jax.jit (fn [ro rd] (march ro rd (partial mlp weights))))
-   res-flat (marcher ray-origin ray-dir) 
-   res-pos (.reshape res-flat
-                     [(get u.shape 0) (get u.shape 0) 3])
-   res-vis (/ res-pos (np.linalg.norm res-pos :axis -1 :keepdims True)))
-  (plt.imshow res-pos)
-  (plt.show))
 
+  (import time [time])
+  (do
+    (setv t0 (time))
+    (jax.jit march)
+    (print (- (time) t0))
+    (jax.block-until-ready 
+      (march ray-origin ray-dir (partial sphere)))
+    (print (- (time) t0)))
+
+  (do  
+    (setv
+     ray-origin (np.array [[0.5 0.5 -1.0]])
+
+     [u v] (np.meshgrid (np.linspace -1.0 1.0 320)
+                        (np.linspace -1.0 1.0 320))
+     uvw (np.dstack [u v (np.ones-like u)])
+     ray-dir (/ uvw (np.linalg.norm uvw :axis -1 :keepdims True))
+     ray-dir (.reshape ray-dir [-1 3])
+     marcher (jax.jit (fn [ro rd] (march ro rd (partial mlp weights))))
+     res-flat (marcher ray-origin ray-dir) 
+     res-pos (.reshape res-flat
+                       [(get u.shape 0) (get u.shape 0) 3])
+     res-vis (/ res-pos (np.linalg.norm res-pos :axis -1 :keepdims True)))
+    (plt.imshow res-pos)
+    (plt.show)))

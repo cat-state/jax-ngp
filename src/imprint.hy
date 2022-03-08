@@ -6,37 +6,36 @@
         pandas)
 (import hash [ngp-hash R3-hash])
 
-(import sdf [show])
+(import sdf [show sphere])
 
 (setv KEY (random.PRNGKey 2022))
 
+(defn i** [b x] (int (** 10 x)))
+
+(defn imprint [weights features idxs y]
+  (.set (get features.at idxs)
+        (@ y (np.linalg.pinv weights))))
 
 
-(setv res
-    (lfor nx (range 4 8)
-      (do
-        (setv 
-          [w-key x-key h-key y-key] (random.split KEY 4)
-          weights (random.uniform w-key [16 3])
-          inv-weights (np.linalg.pinv weights)
-          feats (random.uniform h-key [(** 2 20) 16])
-          x (random.uniform x-key [(** 10 nx) 3])
-          idxs (ngp-hash (np.floor (* x 2048)) (** 2 20))
-          f (. feats [idxs])
-          tot (np.ones-like feats)
-          tot (.add (get tot.at idxs) 1.0)
-          overwrites (. tot [idxs])
-          y-true (random.uniform y-key [(** 10 nx) 3])
+(for [nx (np.linspace 4 9 :num 10)]
+  (do
+    (setv 
+      [w-key x-key h-key y-key] (random.split KEY 4)
+      weights (random.uniform w-key [16 16])
+      feats (random.uniform h-key [(** 2 19) 16])
+      x (random.uniform x-key [(i** 10 nx) 3])
+      idxs (R3-hash (np.floor (* x 2048)) (** 2 19))
+      tot (np.ones-like feats)
+      tot (.add (get tot.at idxs) 1.0)
+      overwrites (. tot [idxs])
+      y-true (sphere x)
+      y-true (np.concatenate [y-true (np.zeros [(i** 10 nx) 15])] :axis -1)
+      imprinted (imprint weights feats idxs y-true)
+      f2 (. imprinted [idxs])
+      err (abs (- y-true (@ f2 weights))))
+    (print (i** 10 nx) (.mean err))
+    (seaborn.kdeplot (cut (.ravel err) None 1000000) :label (i** 10 nx))))
 
-          imprinted (.set 
-                        (get feats.at idxs)                     
-                        (@ y-true inv-weights))
-          f2 (. imprinted [idxs])
-          diff (np.median (abs (- y-true (@ f2 weights)))))
-        (print (** 10 nx) diff)
-        (dict :nx nx :err (cut (.ravel (abs (- y-true (@ f2 weights)))) None 10000)))))
-(print res)
-(for [r res] (seaborn.kdeplot (:err r) :label (:nx r)))
 (plt.legend)
 (plt.show)
      

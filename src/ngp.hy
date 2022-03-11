@@ -43,11 +43,11 @@
    (np.sum (* interpolate-by voxel-feats) :axis 0)))
 
 
-(defn HashEncodedFeatures [num-features feature-dim level [hasher ngp-hash]]
+(defn HashEncodedFeatures [num-features feature-dim level [hasher ngp-hash] [weights-scale 1e-4]]
   (defn init-fn [rng input-shape]
     (setv output-shape (+ (cut input-shape 0 -1) (, feature-dim))
           params (jax.random.uniform rng [num-features feature-dim] 
-                                     :minval -1e-4 :maxval 1e-4))
+                                     :minval (- weights-scale) :maxval weights-scale))
     (, output-shape (dict :hash params)))
   (defn apply-fn [params coord #** kwargs]
     ((jax.vmap hash-encoded-features [0 None None None]) 

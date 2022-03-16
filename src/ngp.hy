@@ -23,14 +23,14 @@
 (defn voxel-idxs [coord level]
   (let [lower (np.floor (* coord 16 (** 1.3819129 level)))
         lower (np.expand-dims lower 0)]
-    (+ lower (np.array [[0 0 0]
-                        [1 0 0]
-                        [0 1 0]
-                        [0 0 1]
-                        [1 1 0]
-                        [0 1 1]
-                        [1 0 1]
-                        [1 1 1]] :dtype lower.dtype))))
+    (+ 0.5 lower (np.array [[0 0 0]
+                            [1 0 0]
+                            [0 1 0]
+                            [0 0 1]
+                            [1 1 0]
+                            [0 1 1]
+                            [1 0 1]
+                            [1 1 1]] :dtype lower.dtype))))
 
 (defn hash-encoded-features [coord features level [hasher ngp-hash]]
   (let [voxels (voxel-idxs coord level)

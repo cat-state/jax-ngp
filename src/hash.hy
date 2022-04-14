@@ -41,6 +41,19 @@ http://extremelearning.com.au/unreasonable-effectiveness-of-quasirandom-sequence
      (defn ~func-name ~params ~@body-forms)))
 
 
+; from https://www.shadertoy.com/view/4tXyWN
+(vectorized defn iq-hash [x [T (** 2 14)]] "(2),()->()"
+  (setv x (.astype x np.uint32)
+        q (* 1103515245 (^ (>> x 1) (ncut x ::-1)))
+        n (* 1103515245 (^ (get q 0) (>> (get q 1) 3))))
+  (% n T))
+
+(vectorized defn ngp-hash2 [x [T (** 2 14)] [seed 0]] "(2),()->()"
+
+  (setv x (.astype x np.uint32)) 
+  (-> (^ (get x 0) (* (get x 1) π_2))
+     (% T)))
+
 (vectorized defn ngp-hash [x [T (** 2 14)] [seed 0]] "(3),()->()"
   (setv x (.astype x np.uint32)) 
   (-> (^ (get x 0) (^ (* (get x 1) π_2) (* (get x 2) π_3)))
@@ -54,6 +67,13 @@ http://extremelearning.com.au/unreasonable-effectiveness-of-quasirandom-sequence
      (% 1.0)
      (01->T T)))
  
+
+(vectorized defn R2-hash [x [T (** 2 14)] [seed 0.5]] "(2),()->()"
+  "R_3 hash using R_3 sequence and final mixing from hash-without-sine"
+  (setv plastic (-> x (* (get PLASTIC 2)) (+ seed)))
+  (-> (summarize plastic)
+     (% 1.0)
+     (01->T T)))
 
 (vectorized defn inv-R3-hash [x [T (** 2 14)] [seed 0.5]] "(3),()->()"
   (setv x (-> x (- seed) (/ (get PLASTIC 3))))

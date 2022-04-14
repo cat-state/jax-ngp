@@ -121,12 +121,34 @@
                        (ngp.HashEncodedFeatures T 2 level :hasher ngp.R3-hash)))
    (stax.FanInConcat -1)))
 
-(with-decorator jax.jit
-  (defn train-step [weights x y]
-    (setv get-grad (jax.value-and-grad (fn [weights x y]
-                                        (mape y (mlp weights x)))))
-    (get-grad weights x y)))
+#@(jax.jit
+   (defn train-step [weights x y]
+     (setv get-grad (jax.value-and-grad (fn [weights x y]
+                                         (mape y (mlp weights x)))))
+     (get-grad weights x y)))
 
+
+(defn eikonal-loss [rng sample-pts sdf weights [λ 0.1]]
+  (setv x (sample-pts)
+        
+        [pred vjp] (jax.vjp #%(sdf weights %1) x)
+        mstep (+ x (* pred) (sample-sphere rng x.shape))
+    g (vjp (np.ones pred.shape)))
+  (+ (.mean (abs pred))
+   (* λ 
+     (.mean (** (- (np.linalg.norm g :axis -1) 1) 2)))))
+
+(defn sample-sphere [rng shape]
+  (setv unormed (jax.random.normal rng shape))
+  (* 0.5 (/ unormed (np.linalg.norm unormed :keepdims True))))
+
+
+#@(jax.jit
+    (defn train-eikonal [rng weights]
+      (setv [on off] (random.split rng 2))
+      ((jax.value-and-grad 
+         (partial eikonal-loss off (partial sample-sphere on [(** 2 14) 3]) 
+                  mlp)) weights)))
 
 (defn residual [#* inner]
   (stax.serial
@@ -146,8 +168,8 @@
 (setv ortho-init (jax.nn.initializers.orthogonal))
 (defn siren-init [rng shape]
   (setv [in-dim out-dim] shape)
-  (random.uniform rng shape :minval (- (-> in-dim (/ 6.0) (** 0.5)))
-                            :maxval (-> in-dim (/ 6.0) (** 0.5)))) 
+  (random.uniform rng shape :minval (- (** (/ 6.0 in-dim) 0.5))
+                            :maxval (** (/ 6.0 in-dim) 0.5))) 
 
 
 (defn id-mlps [out-dim]
@@ -175,6 +197,14 @@
       (hash-feature-encoding 16 (** 2 19))
       (id-mlps 64) (suml)))
 
+ (defn Mlp-siren []
+   (stax.serial (hash-feature-encoding 16 (** 2 19))
+                (id-mlps 64)
+                (stax.Dense 64 :W-init siren-init)
+                (Siren)
+                (stax.Dense 64 :W-init siren-init)
+                (stax.elementwise np.sin)
+                (stax.Dense 1)))
  (setv [init-weights mlp] (Mlp))) 
 (import tqdm [tqdm])
 
@@ -251,19 +281,17 @@
         _ (print (tree-map (fn [t] (not-in "hash" t)) weights
                                      :is-leaf (fn [n] (in "hash" n)))) 
         adamw   (optax.adamw 
-                     ; 1e-4
-                     (optax.exponential-decay :init-value 1e-4 :transition-steps 250 :decay-rate 0.1)
+                     (optax.exponential-decay :init-value 1e-4 :transition-steps 1000 :decay-rate 0.1)
                      :b1 0.9 :b2 0.99 :eps 1e-15
                      :weight-decay 1e-6
                      :mask (tree-map (fn [t] (not-in "hash" t)) weights
                                      :is-leaf (fn [n] (in "hash" n))))
 
-        optimizer (optax.chain adamw)  ; (optax.chain (optax.lamb 1e-4 :b2 0.99 :eps 1e-15))
+        optimizer (optax.chain adamw)
         opt-state (.init optimizer weights)
         losses []
         march-mlp (jax.jit (fn [ro rd weights]
                             (march ro rd (partial mlp weights))))
-        
         ray-origin (np.array [[0.5 0.5 -2.0]])
         [u v] (np.meshgrid (np.linspace -1.0 1.0 100)
                           (np.linspace -1.0 1.0 100))
@@ -276,7 +304,7 @@
                (plot-density sphere (.add-subplot fig 1 2 1 :projection "3d"))
                (plot-density (partial mlp weights) (.add-subplot fig 1 2 2 :projection "3d")))))
                
-  (for [epoch (tqdm (range 500))]
+  (for [epoch (tqdm (range 1000))]
     (setv seed (+ 0.5 (/ epoch 20000.0))
           [key rd longitude latitude] (jax.random.split (jax.random.PRNGKey epoch) 4)
           ; xs (quasirandom 100000 3 :seed seed)
@@ -290,9 +318,10 @@
           ray-dir (rot-xy ray-dir (jax.random.uniform longitude []))
           xs (sample-ray-points key ray-origin ray-dir 1024)
           xs (.reshape xs [-1 3])
-          ; xs (np.concatenate [xs (jax.random.uniform key [10000 3])] :axis 0)
-          ; ys (np.tanh (sphere xs))
+          xs (np.concatenate [xs (jax.random.uniform key [10000 3])] :axis 0)
+          ys (np.tanh (sphere xs))
           ys (sphere xs)
+          ; [loss grad] (train-eikonal key weights)
           [loss grad] (train-step weights xs ys)
           [updates opt-state] (.update optimizer grad opt-state :params weights)
           new-weights (optax.apply-updates weights updates)
